@@ -10,8 +10,8 @@ module DynArray = struct
   let append dyn e d = 
     if dyn.length = dyn.maxlength then begin
       dyn.maxlength <- dyn.maxlength*2;
-      let new_array = Array.make 0 d in
-      Array.blit dyn.array 0 new_array 0 dyn.maxlength;
+      let new_array = Array.make dyn.maxlength d in
+      Array.blit dyn.array 0 new_array 0 (dyn.maxlength/2);
       dyn.array <- new_array;
     end;
     set dyn dyn.length e;
@@ -20,11 +20,11 @@ module DynArray = struct
   let pop dyn =
     dyn.length <- dyn.length-1;
     let r = get dyn dyn.length in
-    if dyn.length <= dyn.maxlength/4 then begin
+    (* if dyn.length <= dyn.maxlength/4 then begin
       dyn.maxlength <- dyn.maxlength/2;
       let new_array = Array.sub dyn.array 0 dyn.length in
       dyn.array <- new_array;
-    end;
+    end; *)
     r
   
 end
@@ -56,16 +56,18 @@ module PQueue = struct
     else j
 
   let rec percolate_down q i = 
-    if 2*i+1 >= DynArray.len q || 2*i+2 >= DynArray.len q then ();
-    let min_child = min_q q (2*i+1) (2*i+2) in
-    let _,pi = DynArray.get q i in
-    let _,pc = DynArray.get q min_child in
-    if pi > pc then begin
-      swap q i min_child;
-      percolate_down q min_child;
-      ()
+    if 2*i+1 >= DynArray.len q || 2*i+2 >= DynArray.len q then ()
+    else begin
+      let min_child = min_q q (2*i+1) (2*i+2) in
+      let _,pi = DynArray.get q i in
+      let _,pc = DynArray.get q min_child in
+      if pi > pc then begin
+        swap q i min_child;
+        percolate_down q min_child;
+        ()
+      end
+      else ()
     end
-    else ()
 
   let add q e d = 
     DynArray.append q e d;
@@ -79,7 +81,7 @@ module PQueue = struct
 
 end
 
-type minion = {owner:int ; x:int ; y:int ; load:int ; hp:int ; capacity:int ; atk:int} ;;
+type minion = {owner:int ; mutable x:int ; mutable y:int ; load:int ; hp:int ; capacity:int ; atk:int} ;;
 type coord = {x:int;y:int};;
 
 let ptr = open_in "mapData.txt" in
@@ -133,108 +135,121 @@ let spawn_minion (hp:int) (size:int) (attack:int) =
   else execute_instruction "CREATE %d %d %d\n" hp size attack;
 in
 
+let index_of a f = 
+  let m = ref (-1) in
+  for i = 0 to Array.length a -1 do
+    if f a.(i) then m := i
+  done;
+  !m
+in
+
 let move_minion (x: int) (y:int) (xd: int) (yd: int) =
+  let i = index_of minions (fun (m: minion) -> m.x = x && m.y = y) in
+  if i <> -1 then begin
+    minions.(i).x <- xd;
+    minions.(i).y <- yd;
+  end;
   execute_instruction "%d %d %d %d\n" x y xd yd
 in
 
 let spawn_initial_gechar () =
-  if curTurn = 0 then (spawn_minion 1 9 0)
+  (spawn_minion 1 11 0)
   (* else if curTurn = 1 then (move_minion baseX baseY (baseX+1) baseY; spawn_minion 1 9 0; )
   else if curTurn = 2 then move_minion baseX baseY baseX (baseY+1) *)
 in
 
-if curTurn = 0 then begin
+if myResources >= 12 then begin
   spawn_initial_gechar ();
 end;
 
 let extract (m:minion) = move_minion m.x m.y m.x m.y in
 
-let sign a = if a > 0 then 1 else -1 in
+(* let sign a = if a > 0 then 1 else -1 in *)
 
-let move_towards (m:minion) x y =
+(* let move_towards (m:minion) x y =
   if x <> m.x then move_minion m.x m.y (m.x + sign (x - m.x)) m.y
   else move_minion m.x m.y m.x (m.y + sign (y - m.y));
-in
-
-(* let floyd_warshall () =
-  let lm = (Array.length map) in 
-  let distances = Array.make_matrix (lm*lm) (lm*lm) infinity in 
-  let paths = Array.make_matrix (lm*lm) (lm*lm) (-1,-1) in 
-  for i = 0 to lm*lm-1 do
-    let x = i/lm in
-      let y = i mod lm in
-      if y > 0 then (
-        let t,_,_ =  map.(x).(y-1) in
-        if t <> "W" then (
-          distances.(i).(x*lm+(y-1)) <- 1.;
-          paths.(i).(x*lm+(y-1)) <- (x, y-1)
-        )
-      );
-      if x > 0 then (
-        let t,_,_ =  map.(x-1).(y) in
-        if t <> "W" then (
-          distances.(i).((x-1)*lm+y) <- 1.;
-          paths.(i).((x-1)*lm+y) <- (x-1, y)
-        )
-      );
-      if y < lm-1 then (
-        let t,_,_ =  map.(x).(y+1) in
-        if t <> "W" then (
-          distances.(i).(x*lm+(y+1)) <- 1.;
-          paths.(i).(x*lm+(y+1)) <- (x, y+1)
-        )
-      );
-      if x < lm-1 then (
-        let t,_,_ =  map.(x+1).(y) in
-        if t <> "W" then (
-          distances.(i).((x+1)*lm+y) <- 1.; 
-          paths.(i).((x+1)*lm+y) <- (x+1, y)
-        )
-      );
-    for j = 0 to lm*lm-1 do 
-      for k = 0 to lm*lm-1 do 
-        if distances.(i).(k) +. distances.(k).(j) < distances.(i).(j) then begin
-          distances.(i).(j) <- distances.(i).(k) +. distances.(k).(j);
-          paths.(i).(j) <- paths.(i).(k);
-        end
-      done
-    done
-  done;
-  (distances,paths)
 in *)
 
 let manhattan a b = (abs (a.x - b.x)) + (abs (a.y - b.y)) in
 
+let available c = 
+  let t,_,_ = map.(c.x).(c.y) in 
+  let r = t <> "W" && not (Array.exists (fun (m:minion) -> m.x = c.x && m.y = c.y) minions) in
+  r in
+
 let rec a_star (source:coord) (destination:coord) = 
-  let q = PQueue.create 10 ({x=-1;y=-1},infinity) in 
+  let default = ({x=(-1);y=(-1)},infinity) in
+  let q = PQueue.create 10 default in 
+  let h = Hashtbl.create 10 in
   if source = destination then source
   else 
-    let t, _, _ = map.(source.x).(source.y) in
+    let t,_,_ = map.(source.x).(source.y) in
     if t = "W" then source
-    else 
-      PQueue.add q (source, (manhattan source destination));
-      while DynArray.len q <> 0 do
-        let x,y = PQueue.extract_min q in
-        if x > 0 then
-          if y > 0 then begin
-            let t,_,_ = map.(x-1).(y-1) in
-            if t <> "W" then
-              PQueue.add q ({x=x-1;y=y-1}, manhattan ({x=x-1;y=y-1}) (destination))
-            else ()
-          end;
-          else then
-            let 
+    else begin 
+      PQueue.add q (source, float_of_int (manhattan source destination)) default;
+      Hashtbl.add h source source; 
+      while DynArray.len q <> 0 && snd (DynArray.get q 0) <> 0. do
+        let min = PQueue.extract_min q in
+        if min.x > 0 then begin
+          let c = {x=(min.x-1);y=min.y} in
+          if not (Hashtbl.mem h c) then begin
+            Hashtbl.add h c min; 
+            if available c then PQueue.add q (c, float_of_int (manhattan ({x=min.x-1;y=min.y}) destination)) default
+          end
+          else (); 
+        end;
+        if min.x < mapSize-1 then begin
+          let c = {x=(min.x+1);y=min.y} in
+          if available c && not (Hashtbl.mem h c) then begin
+            Hashtbl.add h c min; 
+            PQueue.add q (c, float_of_int (manhattan ({x=min.x+1;y=min.y}) destination)) default
+          end
+          else ();  
+        end;
+        if min.y > 0 then begin
+          let c = {x=(min.x);y=(min.y-1)} in
+          if available c && not (Hashtbl.mem h c) then begin
+            Hashtbl.add h c min; 
+            PQueue.add q (c, float_of_int (manhattan ({x=min.x;y=min.y-1}) destination)) default
+          end
+          else (); 
+        end;
+        if min.y < mapSize-1 then begin
+          let c = {x=(min.x);y=(min.y+1)} in
+          if available c && not (Hashtbl.mem h c) then begin
+            Hashtbl.add h c min; 
+            PQueue.add q (c, float_of_int (manhattan ({x=min.x;y=min.y+1}) destination)) default
+          end
+          else ();  
+        end;
       done;
+      try
+        let rec find_source c =
+          if Hashtbl.find h c = source then c
+          else find_source (Hashtbl.find h c)
+        in 
+        let x = find_source destination in
+        x
+      with
+      | _ -> source
+    end
+    in
 
-Array.iter (fun minion -> (
-  if minion.load = minion.capacity then 
-    move_towards minion baseX baseY
+Array.iter (fun (minion: minion) -> (
+  let _,r,_ = map.(minion.x).(minion.y) in
+  if minion.load = minion.capacity then begin 
+    let goal = a_star {x=minion.x;y=minion.y} {x=baseX;y=baseY} in
+    move_minion minion.x minion.y goal.x goal.y
+  end else if r > 0 then begin
+    extract minion
+  end 
   else begin
     let distances = Array.init (Array.length map) (fun i -> Array.init (Array.length map.(0)) (fun j -> (abs (i - minion.x)) + (abs (j - minion.y)))) in
     (* let distances, paths = floyd_warshall () in *)
     let gains = Array.init (Array.length map) (fun i -> Array.init (Array.length map.(0)) (fun j -> 
       let t,r,_ = map.(i).(j) in
-      if t == "W" then 0
+      if not (available {x=i;y=j}) then 0
       else min (minion.capacity - minion.load) r)) in 
     let lm = Array.length map in
     let ratio = Array.init (Array.length map) (fun i -> Array.init (Array.length map.(0)) (fun j -> (float_of_int (gains.(i).(j))) /. (float_of_int distances.(i).(j)+.1.))) in  
@@ -250,17 +265,9 @@ Array.iter (fun minion -> (
         end;
       done; 
     done;
-    let _,rd,_ = map.(!x).(!y) in
-    (* for i = 0 to lm*lm-1 do
-      for j = 0 to lm*lm-1 do
-        let x,y = paths.(i).(j) in
-        Printf.printf "x: %d y: %d\n" x y;
-      done
-    done; *)
-    let next_x, next_y = paths.(lm*minion.x + minion.y).(!x*lm + !y) in
-    Printf.printf "x: %d y:%d px: %d py: %d\n" !x !y next_x next_y;
+    let goal = a_star {x=minion.x;y=minion.y} {x=(!x);y=(!y)} in
     if !x = minion.x && !y = minion.y then extract minion
-    else move_towards minion next_x next_y
+    else move_minion minion.x minion.y goal.x goal.y
   end
 )) minions;
 
